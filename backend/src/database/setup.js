@@ -1,0 +1,341 @@
+/**
+ * Instalación completa de la base de datos El Progreso.
+ *
+ * Uso:
+ *   npm run db:setup
+ *
+ * Qué hace:
+ *   1. Crea la base de datos si no existe
+ *   2. Aplica schema.sql (tablas + datos iniciales)
+ *   3. Crea o actualiza el usuario administrador (ADMIN_PASSWORD)
+ *
+ * Seguro para ejecutar en cada deploy (idempotente).
+ */
+import fs from 'fs/promises';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import bcrypt from 'bcryptjs';
+import mysql from 'mysql2/promise';
+import { env, getDbSslConfig } from '../config/env.js';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const backendRoot = path.resolve(__dirname, '..', '..');
+const envFilePath = path.join(backendRoot, '.env');
+const log = (msg) => console.log(`[db:setup] ${msg}`);
+
+const connectionOptions = (withDatabase = true) => {
+  const ssl = getDbSslConfig();
+  const options = {
+    host: env.DB_HOST,
+    port: env.DB_PORT,
+    user: env.DB_USER,
+    password: env.DB_PASSWORD,
+    multipleStatements: true,
+    timezone: env.DB_TIMEZONE,
+    ...(ssl ? { ssl } : {}),
+  };
+
+  if (withDatabase) {
+    options.database = env.DB_NAME;
+  }
+
+  return options;
+};
+
+const ensureDatabase = async () => {
+  const connection = await mysql.createConnection(connectionOptions(false));
+  try {
+    await connection.query(
+      `CREATE DATABASE IF NOT EXISTS \`${env.DB_NAME}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`
+    );
+    log(`Base de datos "${env.DB_NAME}" verificada`);
+  } catch (error) {
+    log(
+      `No se pudo crear "${env.DB_NAME}" (${error.message}). Se usará la base ya asignada al usuario.`
+    );
+  } finally {
+    await connection.end();
+  }
+};
+
+const applySchema = async (connection) => {
+  const schemaPath = path.join(__dirname, 'schema.sql');
+  const sql = await fs.readFile(schemaPath, 'utf8');
+  await connection.query(sql);
+  log('✓ schema.sql — tablas y datos iniciales');
+};
+
+const columnExists = async (connection, table, column) => {
+  const [rows] = await connection.query(
+    `SELECT 1 FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?
+     LIMIT 1`,
+    [table, column]
+  );
+  return rows.length > 0;
+};
+
+const columnIsNullable = async (connection, table, column) => {
+  const [rows] = await connection.query(
+    `SELECT IS_NULLABLE FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?
+     LIMIT 1`,
+    [table, column]
+  );
+  return rows[0]?.IS_NULLABLE === 'YES';
+};
+
+/** Parches idempotentes para bases ya existentes (deploy en Railway). */
+export const applySchemaPatches = async (connection) => {
+  // Una sentencia por query: el pool de producción no usa multipleStatements.
+  await connection.query(`UPDATE productos SET codigo = NULL WHERE codigo = ''`);
+  const codigoNullable = await columnIsNullable(connection, 'productos', 'codigo');
+  if (!codigoNullable) {
+    await connection.query(
+      `ALTER TABLE productos MODIFY COLUMN codigo VARCHAR(50) NULL`
+    );
+  }
+  log('✓ productos.codigo — opcional (NULL permitido)');
+
+  await connection.query(`
+    CREATE TABLE IF NOT EXISTS venta_pagos (
+      id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+      venta_id INT UNSIGNED NOT NULL,
+      metodo_pago VARCHAR(50) NOT NULL,
+      monto DECIMAL(12, 2) NOT NULL,
+      monto_recibido DECIMAL(12, 2) DEFAULT NULL,
+      vuelto DECIMAL(12, 2) DEFAULT NULL,
+      orden TINYINT UNSIGNED NOT NULL DEFAULT 1,
+      fecha_creacion TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      KEY idx_venta_pagos_venta (venta_id),
+      KEY idx_venta_pagos_metodo (metodo_pago),
+      CONSTRAINT fk_venta_pagos_venta FOREIGN KEY (venta_id) REFERENCES ventas (id) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+  `);
+
+  await connection.query(`
+    INSERT INTO venta_pagos (venta_id, metodo_pago, monto, monto_recibido, vuelto, orden)
+    SELECT v.id, v.metodo_pago, v.total, v.monto_recibido, v.vuelto, 1
+    FROM ventas v
+    WHERE NOT EXISTS (
+      SELECT 1 FROM venta_pagos vp WHERE vp.venta_id = v.id
+    );
+  `);
+  log('✓ venta_pagos — pagos divididos y migración de ventas existentes');
+
+  await connection.query(`
+    INSERT INTO caja_movimientos (sesion_id, tipo, monto, metodo_pago, descripcion, referencia, venta_id, usuario_id, fecha)
+    SELECT v.caja_sesion_id, 'venta', vp.monto, vp.metodo_pago,
+           CONCAT('Venta ', v.numero), v.numero, v.id, v.usuario_id, v.fecha_venta
+    FROM venta_pagos vp
+    INNER JOIN ventas v ON v.id = vp.venta_id
+    LEFT JOIN metodos_pago mp ON mp.codigo = vp.metodo_pago
+    WHERE v.caja_sesion_id IS NOT NULL
+      AND v.estado = 'completada'
+      AND COALESCE(mp.genera_cargo_cc, 0) = 0
+      AND NOT EXISTS (
+        SELECT 1 FROM caja_movimientos m
+        WHERE m.venta_id = v.id
+          AND m.tipo = 'venta'
+          AND m.metodo_pago = vp.metodo_pago
+          AND ABS(m.monto - vp.monto) < 0.01
+      );
+  `);
+  log('✓ caja_movimientos — ventas históricas sin movimiento registrado');
+
+  if (!(await columnExists(connection, 'productos', 'precio_venta_paquete'))) {
+    await connection.query(
+      `ALTER TABLE productos
+         ADD COLUMN precio_venta_paquete DECIMAL(12, 2) NULL DEFAULT NULL AFTER precio_venta`
+    );
+  }
+  if (!(await columnExists(connection, 'productos', 'unidades_por_paquete'))) {
+    await connection.query(
+      `ALTER TABLE productos
+         ADD COLUMN unidades_por_paquete DECIMAL(12, 3) NOT NULL DEFAULT 1.000 AFTER precio_venta_paquete`
+    );
+  }
+  log('✓ productos — precio suelto / paquete');
+
+  if (!(await columnExists(connection, 'venta_detalle', 'modo_venta'))) {
+    await connection.query(
+      `ALTER TABLE venta_detalle
+         ADD COLUMN modo_venta ENUM('suelto', 'paquete') NOT NULL DEFAULT 'suelto' AFTER cantidad`
+    );
+  }
+  if (!(await columnExists(connection, 'venta_detalle', 'cantidad_inventario'))) {
+    await connection.query(
+      `ALTER TABLE venta_detalle
+         ADD COLUMN cantidad_inventario DECIMAL(12, 3) NULL AFTER modo_venta`
+    );
+    await connection.query(
+      `UPDATE venta_detalle SET cantidad_inventario = cantidad WHERE cantidad_inventario IS NULL`
+    );
+    await connection.query(
+      `ALTER TABLE venta_detalle MODIFY COLUMN cantidad_inventario DECIMAL(12, 3) NOT NULL`
+    );
+  }
+  log('✓ venta_detalle — modo de venta y cantidad de inventario');
+
+  await connection.query(`
+    CREATE TABLE IF NOT EXISTS presupuestos (
+      id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+      numero VARCHAR(30) NOT NULL,
+      cliente_id INT UNSIGNED DEFAULT NULL,
+      usuario_id INT UNSIGNED NOT NULL,
+      subtotal DECIMAL(12, 2) NOT NULL DEFAULT 0.00,
+      descuento DECIMAL(12, 2) NOT NULL DEFAULT 0.00,
+      total DECIMAL(12, 2) NOT NULL DEFAULT 0.00,
+      estado ENUM('vigente', 'anulado', 'convertido') NOT NULL DEFAULT 'vigente',
+      validez_dias INT UNSIGNED NOT NULL DEFAULT 15,
+      validez_hasta DATE DEFAULT NULL,
+      observaciones TEXT DEFAULT NULL,
+      venta_id INT UNSIGNED DEFAULT NULL,
+      fecha_presupuesto TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      fecha_creacion TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      fecha_actualizacion TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      UNIQUE KEY uk_presupuestos_numero (numero),
+      KEY idx_presupuestos_cliente (cliente_id),
+      KEY idx_presupuestos_usuario (usuario_id),
+      KEY idx_presupuestos_estado (estado),
+      KEY idx_presupuestos_fecha (fecha_presupuesto),
+      CONSTRAINT fk_presupuestos_cliente FOREIGN KEY (cliente_id) REFERENCES clientes (id) ON DELETE SET NULL,
+      CONSTRAINT fk_presupuestos_usuario FOREIGN KEY (usuario_id) REFERENCES usuarios (id),
+      CONSTRAINT fk_presupuestos_venta FOREIGN KEY (venta_id) REFERENCES ventas (id) ON DELETE SET NULL
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+  `);
+
+  await connection.query(`
+    CREATE TABLE IF NOT EXISTS presupuesto_detalle (
+      id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+      presupuesto_id INT UNSIGNED NOT NULL,
+      producto_id INT UNSIGNED NOT NULL,
+      producto_nombre VARCHAR(150) NOT NULL,
+      producto_codigo VARCHAR(50) NOT NULL DEFAULT '',
+      cantidad DECIMAL(12, 3) NOT NULL,
+      modo_venta ENUM('suelto', 'paquete') NOT NULL DEFAULT 'suelto',
+      precio_unitario DECIMAL(12, 2) NOT NULL,
+      descuento DECIMAL(12, 2) NOT NULL DEFAULT 0.00,
+      subtotal DECIMAL(12, 2) NOT NULL,
+      PRIMARY KEY (id),
+      KEY idx_presupuesto_detalle_presupuesto (presupuesto_id),
+      KEY idx_presupuesto_detalle_producto (producto_id),
+      CONSTRAINT fk_presupuesto_detalle_presupuesto FOREIGN KEY (presupuesto_id) REFERENCES presupuestos (id) ON DELETE CASCADE,
+      CONSTRAINT fk_presupuesto_detalle_producto FOREIGN KEY (producto_id) REFERENCES productos (id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+  `);
+  log('✓ presupuestos — tablas de presupuestos');
+
+  await connection.query(`
+    INSERT INTO permisos (codigo, modulo, descripcion) VALUES
+      ('presupuestos.ver', 'presupuestos', 'Ver presupuestos'),
+      ('presupuestos.crear', 'presupuestos', 'Crear presupuestos'),
+      ('presupuestos.anular', 'presupuestos', 'Anular presupuestos'),
+      ('presupuestos.convertir', 'presupuestos', 'Convertir presupuestos a venta')
+    ON DUPLICATE KEY UPDATE descripcion = VALUES(descripcion);
+  `);
+  log('✓ permisos — módulo presupuestos');
+
+  const [estadoCol] = await connection.query(
+    `SELECT COLUMN_TYPE FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'presupuestos' AND COLUMN_NAME = 'estado'
+     LIMIT 1`
+  );
+  const estadoType = estadoCol[0]?.COLUMN_TYPE ?? '';
+  if (estadoType && !estadoType.includes('convertido')) {
+    await connection.query(
+      `ALTER TABLE presupuestos
+         MODIFY COLUMN estado ENUM('vigente', 'anulado', 'convertido') NOT NULL DEFAULT 'vigente'`
+    );
+  }
+  log('✓ presupuestos — estado convertido');
+};
+
+const seedAdmin = async (connection) => {
+  const username = process.env.ADMIN_USERNAME || 'admin';
+  const password = process.env.ADMIN_PASSWORD;
+
+  if (!password) {
+    let envExists = false;
+    try {
+      await fs.access(envFilePath);
+      envExists = true;
+    } catch {
+      envExists = false;
+    }
+
+    if (!envExists) {
+      throw new Error(
+        'No se encontró backend/.env. Copiá .env.example a .env y definí ADMIN_PASSWORD=tu_contraseña'
+      );
+    }
+
+    throw new Error(
+      'ADMIN_PASSWORD es obligatoria. Agregala en backend/.env (no en .env.example).'
+    );
+  }
+
+  if (env.isProduction && password.length < 12) {
+    throw new Error('ADMIN_PASSWORD debe tener al menos 12 caracteres en producción.');
+  }
+
+  const insecureAdmin = new Set(['Admin123!', 'admin123', 'admin', 'password', 'Password123!']);
+  if (env.isProduction && insecureAdmin.has(password)) {
+    throw new Error('ADMIN_PASSWORD no puede ser un valor de desarrollo.');
+  }
+
+  const [roles] = await connection.execute(
+    'SELECT id FROM roles WHERE nombre = ? LIMIT 1',
+    ['admin']
+  );
+
+  if (!roles.length) {
+    throw new Error('No se encontró el rol admin. Verificá que schema.sql se aplicó correctamente.');
+  }
+
+  const hash = await bcrypt.hash(password, 12);
+  const [existing] = await connection.execute(
+    'SELECT id FROM usuarios WHERE nombre_usuario = ?',
+    [username]
+  );
+
+  if (existing.length) {
+    await connection.execute(
+      'UPDATE usuarios SET contrasena = ?, rol_id = ?, estado = ? WHERE nombre_usuario = ?',
+      [hash, roles[0].id, 'activo', username]
+    );
+    log(`✓ Usuario admin "${username}" actualizado`);
+  } else {
+    await connection.execute(
+      'INSERT INTO usuarios (nombre_usuario, contrasena, estado, rol_id) VALUES (?, ?, ?, ?)',
+      [username, hash, 'activo', roles[0].id]
+    );
+    log(`✓ Usuario admin "${username}" creado`);
+  }
+};
+
+export const setupDatabase = async () => {
+  log('Iniciando configuración de base de datos...');
+  await ensureDatabase();
+
+  const connection = await mysql.createConnection(connectionOptions(true));
+  try {
+    await applySchema(connection);
+    await applySchemaPatches(connection);
+    await seedAdmin(connection);
+    log('Configuración completada — base de datos lista.');
+  } finally {
+    await connection.end();
+  }
+};
+
+const isMain = process.argv[1]?.includes('setup.js');
+
+if (isMain) {
+  setupDatabase().catch((err) => {
+    console.error('[db:setup] Error:', err.message);
+    process.exit(1);
+  });
+}

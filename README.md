@@ -1,4 +1,4 @@
-# Tran-Pack — Gestión de Ventas (PWA)
+# El Progreso — Gestión de Ventas (PWA)
 
 Base profesional Full Stack para un sistema de ventas escalable. **Fase 1:** autenticación JWT, gestión de usuarios y PWA.
 
@@ -22,7 +22,7 @@ cd backend
 cp .env.example .env
 # Editar .env con credenciales MySQL y JWT_SECRET
 npm install
-node src/database/seed-admin.js
+npm run db:setup
 npm run dev
 ```
 
@@ -31,7 +31,7 @@ Usuario demo: **admin** / **Admin123!**
 
 Si ya tenías la BD anterior:
 ```bash
-mysql -u root -p tran_pack < backend/src/database/migration-empleado-permisos.sql
+mysql -u root -p el_progreso < backend/src/database/migration-empleado-permisos.sql
 ```
 
 ### 3. Frontend
@@ -45,6 +45,11 @@ npm run dev
 ```
 
 App: `http://localhost:5173`
+
+## Producción
+
+Guía paso a paso (GitHub + Railway + Vercel): **[DEPLOY.md](DEPLOY.md)**
+
 
 ## Estructura del proyecto
 
@@ -84,7 +89,7 @@ App: `http://localhost:5173`
 Si ya tenías la BD de la fase 1:
 
 ```bash
-mysql -u root -p tran_pack < backend/src/database/migration-fase2-catalogo.sql
+mysql -u root -p el_progreso < backend/src/database/migration-fase2-catalogo.sql
 ```
 
 ### Módulos incluidos
@@ -111,7 +116,7 @@ Rutas frontend: `/catalogo/categorias`, `/catalogo/productos`
 ## Fase 3 — Comercial (Clientes, Inventario, Ventas)
 
 ```bash
-mysql -u root -p tran_pack < backend/src/database/migration-fase3-comercial.sql
+mysql -u root -p el_progreso < backend/src/database/migration-fase3-comercial.sql
 ```
 
 ### Módulos
@@ -133,7 +138,7 @@ mysql -u root -p tran_pack < backend/src/database/migration-fase3-comercial.sql
 ## Fase 5 — Cuenta corriente
 
 ```bash
-mysql -u root -p tran_pack < backend/src/database/migration-fase5-cuenta-corriente.sql
+mysql -u root -p el_progreso < backend/src/database/migration-fase5-cuenta-corriente.sql
 ```
 
 ### Funcionalidad
@@ -150,7 +155,7 @@ mysql -u root -p tran_pack < backend/src/database/migration-fase5-cuenta-corrien
 ## Fase 4 — Finanzas (Caja, Comprobantes, Reportes, Auditoría)
 
 ```bash
-mysql -u root -p tran_pack < backend/src/database/migration-fase4-finanzas.sql
+mysql -u root -p el_progreso < backend/src/database/migration-fase4-finanzas.sql
 ```
 
 ### Módulos
@@ -206,4 +211,4 @@ Integración fiscal (SRI/AFIP según país), múltiples cajas, exportación PDF/
 
 ## Licencia
 
-Proyecto privado — Tran-Pack.
+Proyecto privado — El Progreso.
