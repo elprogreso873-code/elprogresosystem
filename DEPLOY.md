@@ -119,27 +119,30 @@ Si falla, mirá **Deployments → View Logs**.
 ## 4. Vercel — frontend (PWA)
 
 1. [vercel.com](https://vercel.com) → **Add New → Project** → importá el mismo repo de GitHub.
-2. **Root Directory:** dejar `.` (raíz). Vercel usa el `vercel.json` de la raíz.
-3. **Environment Variables** (Production):
+2. **Root Directory:** hacé clic en **Edit** y poné `frontend`  
+   (así Vercel instala y buildea solo el frontend; no hace falta tocar Build and Output Settings).
+3. **Application Preset:** Vite.
+4. **Environment Variables** (Production):
 
 ```env
 VITE_API_URL=https://TU-API.up.railway.app/api/v1
 VITE_APP_NAME=El Progreso
 ```
 
-`VITE_API_URL` debe ser HTTPS y terminar en `/api/v1` (sin barra extra al final).
+`VITE_API_URL` debe ser HTTPS y **incluir** `/api/v1` al final  
+(ej. `https://api.elprogreso.site/api/v1`, no solo `https://api.elprogreso.site`).
 
-4. Deploy. Copiá la URL: `https://el-progreso.vercel.app` (o la que asigne Vercel).
+5. Deploy. Copiá la URL: `https://el-progreso.vercel.app` (o la que asigne Vercel / tu dominio).
 
-5. Volvé a Railway → variable **CORS_ORIGIN**:
+6. Volvé a Railway → variable **CORS_ORIGIN**:
 
 ```env
 CORS_ORIGIN=https://el-progreso.vercel.app
 ```
 
-Sin `/` al final. Railway redespliega solo.
+Sin `/` al final. Si usás dominio propio: `https://app.elprogreso.site` (la URL exacta del frontend). Railway redespliega solo.
 
-6. En Vercel, **Redeploy** el frontend (por si el primer build falló o para asegurar que usa la API correcta).
+7. En Vercel, **Redeploy** el frontend si cambiaste variables después del primer build.
 
 ---
 

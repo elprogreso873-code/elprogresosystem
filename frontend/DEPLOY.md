@@ -2,26 +2,15 @@
 
 La guía completa desde cero está en **[DEPLOY.md](../DEPLOY.md)** (raíz del repo).
 
-## Resumen
-
-### Opción A — Monorepo (recomendada)
-
-Vercel usa el `vercel.json` de la raíz:
-
-| Campo | Valor |
-|-------|-------|
-| Root Directory | `.` (raíz) |
-| Build | automático (`generate:icons` + `build`) |
-| Output | `frontend/dist` |
-
-### Opción B — Solo carpeta `frontend`
+## Resumen (recomendada)
 
 | Campo | Valor |
 |-------|-------|
 | Root Directory | `frontend` |
-| Framework | Vite |
-| Build Command | `npm run generate:icons && npm run build` |
-| Output | `dist` |
+| Framework / Preset | Vite |
+| Install / Build | los define `frontend/vercel.json` |
+
+No hace falta editar Build and Output Settings a mano: con Root Directory = `frontend` Vercel trabaja solo en esa carpeta.
 
 ## Variables (Production)
 
