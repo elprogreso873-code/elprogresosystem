@@ -12,7 +12,12 @@ const app = express();
 
 app.set('trust proxy', 1);
 
-app.use(helmet());
+app.use(
+  helmet({
+    // La PWA en Vercel llama a la API en otro dominio (api.*).
+    crossOriginResourcePolicy: { policy: 'cross-origin' },
+  })
+);
 
 const corsOptions = {
   credentials: true,

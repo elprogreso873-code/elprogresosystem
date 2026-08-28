@@ -140,7 +140,15 @@ VITE_APP_NAME=El Progreso
 CORS_ORIGIN=https://el-progreso.vercel.app
 ```
 
-Sin `/` al final. Si usás dominio propio: `https://app.elprogreso.site` (la URL exacta del frontend). Railway redespliega solo.
+Sin `/` al final. Si usás dominio propio, poné la URL **exacta** con la que se ve el sitio en el navegador.
+
+Si Vercel redirige `elprogreso.site` → `www.elprogreso.site`, incluí **ambos**:
+
+```env
+CORS_ORIGIN=https://elprogreso.site,https://www.elprogreso.site
+```
+
+Railway redespliega solo.
 
 7. En Vercel, **Redeploy** el frontend si cambiaste variables después del primer build.
 
