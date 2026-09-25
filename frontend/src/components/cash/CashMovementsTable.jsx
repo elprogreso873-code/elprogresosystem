@@ -1,8 +1,10 @@
 import { formatDate } from '../../utils/formatDate';
-import { formatCurrency } from '../../utils/formatCurrency';
+import { formatCashAmount } from '../../utils/formatCashAmount';
+import { usePermissions } from '../../hooks/usePermissions';
 import { movTipoClass, movTipoLabel } from './cashConstants';
 
 export const CashMovementsTable = ({ movements, compact = false }) => {
+  const { isAdmin } = usePermissions();
   if (!movements?.length) {
     return <p className="text-sm text-slate-500 py-4 text-center">Sin movimientos</p>;
   }
@@ -21,7 +23,7 @@ export const CashMovementsTable = ({ movements, compact = false }) => {
               >
                 {movTipoLabel[m.tipo] || m.tipo}
               </span>
-              <span className="font-semibold tabular-nums">{formatCurrency(m.monto)}</span>
+              <span className="font-semibold tabular-nums">{formatCashAmount(m.monto, isAdmin)}</span>
             </div>
             <p className="text-sm text-slate-700 truncate">
               {m.descripcion || m.referencia || '—'}
@@ -61,7 +63,7 @@ export const CashMovementsTable = ({ movements, compact = false }) => {
                 </td>
               )}
               <td className="py-2.5 max-w-[200px] truncate">{m.descripcion || m.referencia || '—'}</td>
-              <td className="py-2.5 text-right font-medium">{formatCurrency(m.monto)}</td>
+              <td className="py-2.5 text-right font-medium">{formatCashAmount(m.monto, isAdmin)}</td>
               <td className="py-2.5 text-right text-slate-500 whitespace-nowrap">
                 {formatDate(m.fecha)}
               </td>

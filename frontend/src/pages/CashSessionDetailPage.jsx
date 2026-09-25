@@ -13,10 +13,12 @@ import { CashIncomeBreakdownModal } from '../components/cash/CashIncomeBreakdown
 import { CashEfectivoBreakdownModal } from '../components/cash/CashEfectivoBreakdownModal';
 import { CashMovementsTable } from '../components/cash/CashMovementsTable';
 import { formatDate } from '../utils/formatDate';
-import { formatCurrency } from '../utils/formatCurrency';
+import { formatCashAmount } from '../utils/formatCashAmount';
+import { usePermissions } from '../hooks/usePermissions';
 import { getErrorMessage } from '../utils/getErrorMessage';
 
 export const CashSessionDetailPage = () => {
+  const { isAdmin } = usePermissions();
   const { id } = useParams();
   const [detail, setDetail] = useState(null);
   const [detailLoading, setDetailLoading] = useState(true);
@@ -112,13 +114,13 @@ export const CashSessionDetailPage = () => {
                 <div>
                   <p className="text-slate-500">Efectivo contado</p>
                   <p className="font-semibold">
-                    {sesion.monto_cierre != null ? formatCurrency(sesion.monto_cierre) : '—'}
+                    {sesion.monto_cierre != null ? formatCashAmount(sesion.monto_cierre, isAdmin) : '—'}
                   </p>
                 </div>
                 <div>
                   <p className="text-slate-500">Efectivo esperado</p>
                   <p className="font-semibold">
-                    {sesion.monto_esperado != null ? formatCurrency(sesion.monto_esperado) : '—'}
+                    {sesion.monto_esperado != null ? formatCashAmount(sesion.monto_esperado, isAdmin) : '—'}
                   </p>
                 </div>
                 <div>
@@ -128,7 +130,7 @@ export const CashSessionDetailPage = () => {
                       sesion.diferencia != null && sesion.diferencia !== 0 ? 'text-amber-700' : ''
                     }`}
                   >
-                    {sesion.diferencia != null ? formatCurrency(sesion.diferencia) : '—'}
+                    {sesion.diferencia != null ? formatCashAmount(sesion.diferencia, isAdmin) : '—'}
                   </p>
                 </div>
                 <div>

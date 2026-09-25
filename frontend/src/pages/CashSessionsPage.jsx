@@ -11,9 +11,11 @@ import { Badge } from '../components/ui/Badge';
 import { Pagination } from '../components/common/Pagination';
 import { EmptyState } from '../components/common/EmptyState';
 import { formatDate } from '../utils/formatDate';
-import { formatCurrency } from '../utils/formatCurrency';
+import { formatCashAmount } from '../utils/formatCashAmount';
+import { usePermissions } from '../hooks/usePermissions';
 
 export const CashSessionsPage = () => {
+  const { isAdmin } = usePermissions();
   const [estadoFilter, setEstadoFilter] = useState('todos');
 
   const listParams = useMemo(() => ({ estado: estadoFilter }), [estadoFilter]);
@@ -110,19 +112,19 @@ export const CashSessionsPage = () => {
                           {s.estado}
                         </Badge>
                       </td>
-                      <td className="py-3 text-right">{formatCurrency(s.monto_apertura)}</td>
+                      <td className="py-3 text-right">{formatCashAmount(s.monto_apertura, isAdmin)}</td>
                       <td className="py-3 text-right">
-                        {s.monto_esperado != null ? formatCurrency(s.monto_esperado) : '—'}
+                        {s.monto_esperado != null ? formatCashAmount(s.monto_esperado, isAdmin) : '—'}
                       </td>
                       <td className="py-3 text-right">
-                        {s.monto_cierre != null ? formatCurrency(s.monto_cierre) : '—'}
+                        {s.monto_cierre != null ? formatCashAmount(s.monto_cierre, isAdmin) : '—'}
                       </td>
                       <td
                         className={`py-3 text-right font-medium ${
                           s.diferencia != null && s.diferencia !== 0 ? 'text-amber-700' : ''
                         }`}
                       >
-                        {s.diferencia != null ? formatCurrency(s.diferencia) : '—'}
+                        {s.diferencia != null ? formatCashAmount(s.diferencia, isAdmin) : '—'}
                       </td>
                       <td className="py-3 text-right">
                         <Link

@@ -23,10 +23,11 @@ import { CashEfectivoBreakdownModal } from '../components/cash/CashEfectivoBreak
 import { CashMovementsTable } from '../components/cash/CashMovementsTable';
 import { formatDate } from '../utils/formatDate';
 import { formatCurrency } from '../utils/formatCurrency';
+import { formatCashAmount } from '../utils/formatCashAmount';
 import { getErrorMessage } from '../utils/getErrorMessage';
 
 export const CashPage = () => {
-  const { hasPermission } = usePermissions();
+  const { hasPermission, isAdmin } = usePermissions();
   const canOpen = hasPermission(PERMISSIONS.CAJA_ABRIR);
   const canClose = hasPermission(PERMISSIONS.CAJA_CERRAR);
   const canMove = hasPermission(PERMISSIONS.CAJA_MOVIMIENTO);
@@ -230,25 +231,25 @@ export const CashPage = () => {
                 <p className="text-slate-500">Ingresos manuales</p>
                 <p className="font-semibold flex items-center gap-1 text-emerald-700">
                   <ArrowDownCircle className="w-4 h-4" />
-                  {formatCurrency(resumen?.total_ingresos_manuales ?? 0)}
+                  {formatCashAmount(resumen?.total_ingresos_manuales ?? 0, isAdmin)}
                 </p>
               </div>
               <div>
                 <p className="text-slate-500">Egresos</p>
                 <p className="font-semibold flex items-center gap-1 text-red-700">
                   <ArrowUpCircle className="w-4 h-4" />
-                  {formatCurrency(resumen?.total_egresos ?? sesion.total_egresos)}
+                  {formatCashAmount(resumen?.total_egresos ?? sesion.total_egresos, isAdmin)}
                 </p>
               </div>
               <div>
                 <p className="text-slate-500">Cobros CC en caja</p>
                 <p className="font-semibold text-blue-800">
-                  {formatCurrency(resumen?.total_cobros_cuenta_corriente ?? 0)}
+                  {formatCashAmount(resumen?.total_cobros_cuenta_corriente ?? 0, isAdmin)}
                 </p>
               </div>
               <div>
                 <p className="text-slate-500">Ventas (todas)</p>
-                <p className="font-semibold">{formatCurrency(resumen?.total_ventas ?? 0)}</p>
+                <p className="font-semibold">{formatCashAmount(resumen?.total_ventas ?? 0, isAdmin)}</p>
               </div>
             </div>
           </Card>
@@ -316,7 +317,8 @@ export const CashPage = () => {
       <Modal isOpen={closeModal} onClose={() => setCloseModal(false)} title="Cerrar caja">
         <div className="space-y-4">
           <p className="text-sm text-slate-600">
-            Efectivo esperado en caja: <strong>{formatCurrency(saldoEsperado)}</strong>
+            Efectivo esperado en caja:{' '}
+            <strong>{formatCashAmount(saldoEsperado, isAdmin)}</strong>
           </p>
           <CurrencyInput
             label="Efectivo contado al cierre (ARS)"
