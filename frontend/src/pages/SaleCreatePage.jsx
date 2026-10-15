@@ -26,6 +26,7 @@ import { createPaymentLine } from '../components/commercial/SalePaymentSplitEdit
 import { ProductSearchCard } from '../components/catalog/ProductSearchCard';
 import { ClientPickerModal } from '../components/commercial/ClientPickerModal';
 import { useDebounce } from '../hooks/useDebounce';
+import { useBarcodeProductSearch } from '../hooks/useBarcodeProductSearch';
 import { formatCurrency } from '../utils/formatCurrency';
 import { getErrorMessage } from '../utils/getErrorMessage';
 import { useConnection } from '../context/ConnectionContext';
@@ -68,11 +69,53 @@ export const SaleCreatePage = () => {
   const [stockWarning, setStockWarning] = useState('');
   const [presupuestoId, setPresupuestoId] = useState(null);
   const [presupuestoNumero, setPresupuestoNumero] = useState('');
+  const [lastAddedKey, setLastAddedKey] = useState('');
   const debouncedProductSearch = useDebounce(productSearch, 300);
 
   const convertingFromQuote = Boolean(presupuestoId);
 
   const cartSectionRef = useRef(null);
+  const cartRef = useRef([]);
+
+  const scrollToCart = () => {
+    requestAnimationFrame(() => {
+      cartSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  };
+
+  const addToCart = useCallback((product, modoVenta = MODOS_VENTA.SUELTO) => {
+    setError('');
+    const key = cartLineKey(product.id, modoVenta);
+    const existingQty = cartRef.current.find((i) => i.lineKey === key)?.cantidad ?? 0;
+    const draftLine = buildCartLine(product, modoVenta);
+    const newQty = existingQty + 1;
+    const warning = getStockAddWarning({ ...draftLine, cantidad: newQty }, newQty);
+    if (warning) setStockWarning(warning);
+
+    const wasEmpty = cartRef.current.length === 0;
+    setCart((prev) => {
+      const existing = prev.find((i) => i.lineKey === key);
+      const next = existing
+        ? prev.map((i) => (i.lineKey === key ? { ...i, cantidad: i.cantidad + 1 } : i))
+        : [...prev, draftLine];
+      cartRef.current = next;
+      return next;
+    });
+    setLastAddedKey(key);
+    if (wasEmpty && typeof window !== 'undefined' && window.matchMedia('(max-width: 1279px)').matches) {
+      scrollToCart();
+    }
+  }, []);
+
+  const { inputRef, onKeyDown, onChange, scanBusy } = useBarcodeProductSearch({
+    productSearch,
+    setProductSearch,
+    setSearchResults,
+    setSearchError,
+    setSearchLoading,
+    addToCart,
+    enabled: !convertingFromQuote && !paymentModalOpen,
+  });
 
   const refreshCashSession = useCallback(async () => {
     if (!canCreateSale) return null;
@@ -106,7 +149,18 @@ export const SaleCreatePage = () => {
   }, []);
 
   useEffect(() => {
+    cartRef.current = cart;
+  }, [cart]);
+
+  useEffect(() => {
+    if (!lastAddedKey) return;
+    const t = setTimeout(() => setLastAddedKey(''), 1200);
+    return () => clearTimeout(t);
+  }, [lastAddedKey]);
+
+  useEffect(() => {
     const term = debouncedProductSearch.trim();
+    if (scanBusy) return;
     if (term.length < MIN_SEARCH_CHARS) {
       setSearchResults([]);
       setSearchError('');
@@ -136,7 +190,7 @@ export const SaleCreatePage = () => {
     return () => {
       cancelled = true;
     };
-  }, [debouncedProductSearch]);
+  }, [debouncedProductSearch, scanBusy]);
 
   useEffect(() => {
     refreshCashSession();
@@ -335,36 +389,6 @@ export const SaleCreatePage = () => {
       document.removeEventListener('visibilitychange', onVisible);
     };
   }, [refreshCashSession]);
-
-  const scrollToCart = () => {
-    requestAnimationFrame(() => {
-      cartSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    });
-  };
-
-  const addToCart = (product, modoVenta = MODOS_VENTA.SUELTO) => {
-    setError('');
-    const key = cartLineKey(product.id, modoVenta);
-    const existingQty = cart.find((i) => i.lineKey === key)?.cantidad ?? 0;
-    const draftLine = buildCartLine(product, modoVenta);
-    const newQty = existingQty + 1;
-    const warning = getStockAddWarning({ ...draftLine, cantidad: newQty }, newQty);
-    if (warning) setStockWarning(warning);
-
-    const wasEmpty = cart.length === 0;
-    setCart((prev) => {
-      const existing = prev.find((i) => i.lineKey === key);
-      if (existing) {
-        return prev.map((i) =>
-          i.lineKey === key ? { ...i, cantidad: i.cantidad + 1 } : i
-        );
-      }
-      return [...prev, draftLine];
-    });
-    if (wasEmpty && typeof window !== 'undefined' && window.matchMedia('(max-width: 1279px)').matches) {
-      scrollToCart();
-    }
-  };
 
   const normalizeCartNumeric = (field, value) => {
     if (typeof value === 'number' && Number.isFinite(value)) return value;
@@ -787,12 +811,15 @@ export const SaleCreatePage = () => {
         {!convertingFromQuote && (
         <Card title="Buscar producto" className="!p-4 sm:!p-6 h-fit">
           <SearchInput
+            ref={inputRef}
             id="buscar-prod-venta"
             label="Código o nombre"
-            placeholder="Ej: ga, 001, nombre…"
+            placeholder="Escanee el código o escriba el nombre…"
             value={productSearch}
-            onChange={(e) => setProductSearch(e.target.value)}
-            hint={`Mínimo ${MIN_SEARCH_CHARS} caracteres`}
+            onChange={onChange}
+            onKeyDown={onKeyDown}
+            autoFocus
+            hint="El escáner agrega el producto solo. Enter también lo suma."
             className="mb-3"
           />
           {searchError && <p className="text-sm text-red-600 mb-2">{searchError}</p>}
@@ -800,17 +827,18 @@ export const SaleCreatePage = () => {
             className="space-y-2 overflow-y-auto overscroll-contain -mx-1 px-1"
             style={{ maxHeight: 'min(52vh, 420px)' }}
           >
-            {searchLoading && (
+            {(searchLoading || scanBusy) && (
               <div className="flex justify-center py-12">
                 <Spinner />
               </div>
             )}
-            {!searchLoading && productSearch.trim().length < MIN_SEARCH_CHARS && (
+            {!searchLoading && !scanBusy && productSearch.trim().length < MIN_SEARCH_CHARS && (
               <p className="text-sm text-slate-500 text-center py-12 px-2">
-                Escriba para buscar en el catálogo
+                Escanee un código de barras o escriba para buscar
               </p>
             )}
             {!searchLoading &&
+              !scanBusy &&
               productSearch.trim().length >= MIN_SEARCH_CHARS &&
               searchResults.length === 0 &&
               !searchError && (
@@ -819,6 +847,7 @@ export const SaleCreatePage = () => {
                 </p>
               )}
             {!searchLoading &&
+              !scanBusy &&
               searchResults.map((p) => {
                 const stock = Number(p.stock ?? 0);
                 return (
@@ -871,7 +900,7 @@ export const SaleCreatePage = () => {
                 <ShoppingCart className="w-12 h-12 text-slate-300 mb-3" />
                 <p className="text-slate-600 font-medium">Sin productos</p>
                 <p className="text-sm text-slate-500 mt-1 text-center">
-                  Busque y toque un producto para agregarlo
+                  Escanee un código o busque por nombre
                 </p>
               </div>
             ) : (
@@ -888,6 +917,7 @@ export const SaleCreatePage = () => {
                       onRemove={removeFromCart}
                       onModoChange={changeCartModo}
                       readOnly={convertingFromQuote}
+                      highlighted={item.lineKey === lastAddedKey}
                     />
                   ))}
                 </div>

@@ -16,7 +16,14 @@ import { ProductMetaChips } from '../catalog/ProductMetaChips';
 
 const roundQty = (n, step = 0.001) => Math.round(n / step) * step;
 
-export const SaleCartLine = ({ item, onUpdate, onRemove, onModoChange, readOnly = false }) => {
+export const SaleCartLine = ({
+  item,
+  onUpdate,
+  onRemove,
+  onModoChange,
+  readOnly = false,
+  highlighted = false,
+}) => {
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const lineTotal = item.precio_unitario * item.cantidad - (item.descuento || 0);
   const stockWarning = getStockAddWarning(item, item.cantidad);
@@ -31,7 +38,13 @@ export const SaleCartLine = ({ item, onUpdate, onRemove, onModoChange, readOnly 
   };
 
   return (
-    <article className="rounded-2xl border border-slate-200 bg-white overflow-hidden shadow-sm">
+    <article
+      className={`rounded-2xl border overflow-hidden shadow-sm transition-colors duration-300 ${
+        highlighted
+          ? 'border-brand-400 bg-brand-50/70 ring-2 ring-brand-400/40'
+          : 'border-slate-200 bg-white'
+      }`}
+    >
       <div className="p-3 sm:p-4">
         <div className="flex gap-3 items-start">
           <ProductImage src={item.imagen_url} alt={item.nombre} size="sm" />

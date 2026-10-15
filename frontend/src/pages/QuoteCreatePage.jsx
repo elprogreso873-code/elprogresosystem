@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { FileText, ArrowLeft, ClipboardList } from 'lucide-react';
 import { quoteService } from '../services/quoteService';
@@ -19,6 +19,7 @@ import {
 import { QuoteCheckoutModal } from '../components/commercial/QuoteCheckoutModal';
 import { ProductSearchCard } from '../components/catalog/ProductSearchCard';
 import { useDebounce } from '../hooks/useDebounce';
+import { useBarcodeProductSearch } from '../hooks/useBarcodeProductSearch';
 import { formatCurrency, formatNumber } from '../utils/formatCurrency';
 import { getErrorMessage } from '../utils/getErrorMessage';
 import { useConnection } from '../context/ConnectionContext';
@@ -48,8 +49,50 @@ export const QuoteCreatePage = () => {
   const [productSearch, setProductSearch] = useState('');
   const [cart, setCart] = useState([]);
   const [stockWarning, setStockWarning] = useState('');
+  const [lastAddedKey, setLastAddedKey] = useState('');
   const debouncedProductSearch = useDebounce(productSearch, 300);
   const cartSectionRef = useRef(null);
+  const cartRef = useRef([]);
+
+  const scrollToCart = () => {
+    requestAnimationFrame(() => {
+      cartSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  };
+
+  const addToCart = useCallback((product, modoVenta = MODOS_VENTA.SUELTO) => {
+    setError('');
+    const key = cartLineKey(product.id, modoVenta);
+    const existingQty = cartRef.current.find((i) => i.lineKey === key)?.cantidad ?? 0;
+    const draftLine = buildCartLine(product, modoVenta);
+    const newQty = existingQty + 1;
+    const warning = getStockAddWarning({ ...draftLine, cantidad: newQty }, newQty);
+    if (warning) setStockWarning(warning);
+
+    const wasEmpty = cartRef.current.length === 0;
+    setCart((prev) => {
+      const existing = prev.find((i) => i.lineKey === key);
+      const next = existing
+        ? prev.map((i) => (i.lineKey === key ? { ...i, cantidad: i.cantidad + 1 } : i))
+        : [...prev, draftLine];
+      cartRef.current = next;
+      return next;
+    });
+    setLastAddedKey(key);
+    if (wasEmpty && typeof window !== 'undefined' && window.matchMedia('(max-width: 1279px)').matches) {
+      scrollToCart();
+    }
+  }, []);
+
+  const { inputRef, onKeyDown, onChange, scanBusy } = useBarcodeProductSearch({
+    productSearch,
+    setProductSearch,
+    setSearchResults,
+    setSearchError,
+    setSearchLoading,
+    addToCart,
+    enabled: !checkoutOpen,
+  });
 
   useEffect(() => {
     clientService
@@ -60,7 +103,18 @@ export const QuoteCreatePage = () => {
   }, []);
 
   useEffect(() => {
+    cartRef.current = cart;
+  }, [cart]);
+
+  useEffect(() => {
+    if (!lastAddedKey) return;
+    const t = setTimeout(() => setLastAddedKey(''), 1200);
+    return () => clearTimeout(t);
+  }, [lastAddedKey]);
+
+  useEffect(() => {
     const term = debouncedProductSearch.trim();
+    if (scanBusy) return;
     if (term.length < MIN_SEARCH_CHARS) {
       setSearchResults([]);
       setSearchError('');
@@ -90,37 +144,7 @@ export const QuoteCreatePage = () => {
     return () => {
       cancelled = true;
     };
-  }, [debouncedProductSearch]);
-
-  const scrollToCart = () => {
-    requestAnimationFrame(() => {
-      cartSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    });
-  };
-
-  const addToCart = (product, modoVenta = MODOS_VENTA.SUELTO) => {
-    setError('');
-    const key = cartLineKey(product.id, modoVenta);
-    const existingQty = cart.find((i) => i.lineKey === key)?.cantidad ?? 0;
-    const draftLine = buildCartLine(product, modoVenta);
-    const newQty = existingQty + 1;
-    const warning = getStockAddWarning({ ...draftLine, cantidad: newQty }, newQty);
-    if (warning) setStockWarning(warning);
-
-    const wasEmpty = cart.length === 0;
-    setCart((prev) => {
-      const existing = prev.find((i) => i.lineKey === key);
-      if (existing) {
-        return prev.map((i) =>
-          i.lineKey === key ? { ...i, cantidad: i.cantidad + 1 } : i
-        );
-      }
-      return [...prev, draftLine];
-    });
-    if (wasEmpty && typeof window !== 'undefined' && window.matchMedia('(max-width: 1279px)').matches) {
-      scrollToCart();
-    }
-  };
+  }, [debouncedProductSearch, scanBusy]);
 
   const normalizeCartNumeric = (field, value) => {
     if (typeof value === 'number' && Number.isFinite(value)) return value;
@@ -281,12 +305,15 @@ export const QuoteCreatePage = () => {
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-5 xl:gap-6">
         <Card title="Buscar producto" className="!p-4 sm:!p-6 h-fit">
           <SearchInput
+            ref={inputRef}
             id="buscar-prod-presupuesto"
             label="Código o nombre"
-            placeholder="Ej: ga, 001, nombre…"
+            placeholder="Escanee el código o escriba el nombre…"
             value={productSearch}
-            onChange={(e) => setProductSearch(e.target.value)}
-            hint={`Mínimo ${MIN_SEARCH_CHARS} caracteres`}
+            onChange={onChange}
+            onKeyDown={onKeyDown}
+            autoFocus
+            hint="El escáner agrega el producto solo. Enter también lo suma."
             className="mb-3"
           />
           {searchError && <p className="text-sm text-red-600 mb-2">{searchError}</p>}
@@ -294,17 +321,18 @@ export const QuoteCreatePage = () => {
             className="space-y-2 overflow-y-auto overscroll-contain -mx-1 px-1"
             style={{ maxHeight: 'min(52vh, 420px)' }}
           >
-            {searchLoading && (
+            {(searchLoading || scanBusy) && (
               <div className="flex justify-center py-12">
                 <Spinner />
               </div>
             )}
-            {!searchLoading && productSearch.trim().length < MIN_SEARCH_CHARS && (
+            {!searchLoading && !scanBusy && productSearch.trim().length < MIN_SEARCH_CHARS && (
               <p className="text-sm text-slate-500 text-center py-12 px-2">
-                Escriba para buscar en el catálogo
+                Escanee un código de barras o escriba para buscar
               </p>
             )}
             {!searchLoading &&
+              !scanBusy &&
               productSearch.trim().length >= MIN_SEARCH_CHARS &&
               searchResults.length === 0 &&
               !searchError && (
@@ -313,6 +341,7 @@ export const QuoteCreatePage = () => {
                 </p>
               )}
             {!searchLoading &&
+              !scanBusy &&
               searchResults.map((p) => {
                 const stock = Number(p.stock ?? 0);
                 return (
@@ -358,7 +387,7 @@ export const QuoteCreatePage = () => {
                 <ClipboardList className="w-12 h-12 text-slate-300 mb-3" />
                 <p className="text-slate-600 font-medium">Sin productos</p>
                 <p className="text-sm text-slate-500 mt-1 text-center">
-                  Busque y toque un producto para agregarlo
+                  Escanee un código o busque por nombre
                 </p>
               </div>
             ) : (
@@ -374,6 +403,7 @@ export const QuoteCreatePage = () => {
                       onUpdate={updateCartItem}
                       onRemove={removeFromCart}
                       onModoChange={changeCartModo}
+                      highlighted={item.lineKey === lastAddedKey}
                     />
                   ))}
                 </div>

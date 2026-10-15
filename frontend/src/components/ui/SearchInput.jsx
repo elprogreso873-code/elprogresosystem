@@ -16,6 +16,8 @@ export const SearchInput = forwardRef(function SearchInput(
     className = '',
     inputClassName = '',
     autoFocus = false,
+    onKeyDown,
+    ...inputProps
   },
   ref
 ) {
@@ -48,10 +50,16 @@ export const SearchInput = forwardRef(function SearchInput(
           type="search"
           value={value}
           onChange={onChange}
+          onKeyDown={onKeyDown}
           placeholder={placeholder}
           autoComplete="off"
+          autoCorrect="off"
+          autoCapitalize="off"
+          spellCheck={false}
+          inputMode="search"
           autoFocus={autoFocus}
           className={`${fieldBase} ${sizeClass} ${borderClass} pl-11 pr-11 ${inputClassName}`}
+          {...inputProps}
         />
         {value && (
           <button
