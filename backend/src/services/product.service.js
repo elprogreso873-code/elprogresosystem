@@ -46,8 +46,20 @@ const searchCondition =
 
 /** Búsqueda rápida en mostrador (código, nombre, descripción) */
 export const quickSearchProducts = async ({ q, limit = 12 }) => {
-  const term = `%${q}%`;
-  const exactCode = q.trim();
+  const exactCode = String(q || '').trim();
+  const term = `%${exactCode}%`;
+
+  const [exactRows] = exactCode
+    ? await pool.execute(
+        `${baseSelect}
+         WHERE p.estado = 'activo' AND LOWER(p.codigo) = LOWER(?)
+         LIMIT 1`,
+        [exactCode]
+      )
+    : [[]];
+
+  const exact = exactRows[0] ? mapProduct(exactRows[0]) : null;
+  const remaining = Math.max(1, Number(limit) - (exact ? 1 : 0));
 
   const [rows] = await pool.execute(
     `${baseSelect}
@@ -55,17 +67,21 @@ export const quickSearchProducts = async ({ q, limit = 12 }) => {
        AND ${searchCondition}
      ORDER BY
        CASE
-         WHEN p.codigo = ? THEN 0
+         WHEN LOWER(p.codigo) = LOWER(?) THEN 0
          WHEN p.codigo LIKE ? THEN 1
          WHEN p.nombre LIKE ? THEN 2
          ELSE 3
        END,
        p.nombre ASC
-     ${sqlLimit(limit, { maxLimit: 50 })}`,
-    [term, term, term, term, term, exactCode, `${exactCode}%`, `${q}%`]
+     ${sqlLimit(remaining, { maxLimit: 50 })}`,
+    [term, term, term, term, term, exactCode, `${exactCode}%`, `${exactCode}%`]
   );
 
-  return rows.map(mapProduct);
+  const others = rows
+    .map(mapProduct)
+    .filter((product) => !exact || product.id !== exact.id);
+
+  return exact ? [exact, ...others] : others;
 };
 
 export const listProducts = async ({ page, limit, search, estado, categoria_id }) => {
