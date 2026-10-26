@@ -8,6 +8,31 @@ import {
   registerCcPaymentInCash,
 } from './cash.service.js';
 
+const money = (value) => Math.round((Number(value) || 0) * 100) / 100;
+
+const toDateOnly = (value) => {
+  if (!value) return null;
+  if (typeof value === 'string') {
+    const match = value.trim().match(/^(\d{4}-\d{2}-\d{2})/);
+    return match ? match[1] : null;
+  }
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    const y = value.getUTCFullYear();
+    const m = String(value.getUTCMonth() + 1).padStart(2, '0');
+    const d = String(value.getUTCDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+  return null;
+};
+
+const formatPeriodLabel = (desde, hasta) => {
+  const fmt = (iso) => {
+    const [y, m, d] = String(iso).split('-');
+    return `${d}/${m}/${y}`;
+  };
+  return `${fmt(desde)} – ${fmt(hasta)}`;
+};
+
 const mapMovement = (row) => ({
   id: row.id,
   cliente_id: row.cliente_id,
@@ -22,6 +47,8 @@ const mapMovement = (row) => ({
   metodo_cobro: row.metodo_cobro,
   metodo_cobro_nombre: row.metodo_cobro_nombre ?? row.metodo_cobro,
   caja_sesion_id: row.caja_sesion_id,
+  periodo_desde: toDateOnly(row.periodo_desde),
+  periodo_hasta: toDateOnly(row.periodo_hasta),
   usuario_id: row.usuario_id,
   usuario_nombre: row.usuario_nombre,
   fecha: row.fecha,
@@ -53,14 +80,17 @@ const insertMovement = async (
     observaciones,
     metodoCobro,
     cajaSesionId,
+    periodoDesde,
+    periodoHasta,
     usuarioId,
   }
 ) => {
   const [result] = await conn.execute(
     `INSERT INTO cuenta_corriente_movimientos (
       cliente_id, tipo, monto, saldo_anterior, saldo_posterior,
-      venta_id, referencia, observaciones, metodo_cobro, caja_sesion_id, usuario_id
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      venta_id, referencia, observaciones, metodo_cobro, caja_sesion_id,
+      periodo_desde, periodo_hasta, usuario_id
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       clienteId,
       tipo,
@@ -72,10 +102,101 @@ const insertMovement = async (
       observaciones ?? null,
       metodoCobro ?? null,
       cajaSesionId ?? null,
+      periodoDesde ?? null,
+      periodoHasta ?? null,
       usuarioId,
     ]
   );
   return result.insertId;
+};
+
+const computePeriodBalance = async (clienteId, fechaDesde, fechaHasta, executor = pool) => {
+  const [activity] = await executor.execute(
+    `SELECT
+       COALESCE(SUM(CASE WHEN tipo = 'cargo' THEN monto ELSE 0 END), 0) AS cargos,
+       COALESCE(SUM(CASE WHEN tipo = 'cargo' THEN 1 ELSE 0 END), 0) AS cargos_cantidad,
+       COALESCE(SUM(CASE WHEN tipo = 'ajuste' AND saldo_posterior > saldo_anterior THEN monto ELSE 0 END), 0) AS ajustes_aumento,
+       COALESCE(SUM(CASE WHEN tipo = 'ajuste' AND saldo_posterior < saldo_anterior THEN monto ELSE 0 END), 0) AS ajustes_disminucion
+     FROM cuenta_corriente_movimientos
+     WHERE cliente_id = ?
+       AND DATE(fecha) >= ?
+       AND DATE(fecha) <= ?
+       AND tipo IN ('cargo', 'ajuste')`,
+    [clienteId, fechaDesde, fechaHasta]
+  );
+
+  const [voidRows] = await executor.execute(
+    `SELECT COALESCE(SUM(a.monto), 0) AS anulaciones
+     FROM cuenta_corriente_movimientos a
+     WHERE a.cliente_id = ?
+       AND a.tipo = 'anulacion'
+       AND (
+         (DATE(a.fecha) >= ? AND DATE(a.fecha) <= ?)
+         OR (
+           a.venta_id IS NOT NULL
+           AND EXISTS (
+             SELECT 1
+             FROM cuenta_corriente_movimientos c
+             WHERE c.cliente_id = a.cliente_id
+               AND c.tipo = 'cargo'
+               AND c.venta_id = a.venta_id
+               AND DATE(c.fecha) >= ?
+               AND DATE(c.fecha) <= ?
+           )
+         )
+       )`,
+    [clienteId, fechaDesde, fechaHasta, fechaDesde, fechaHasta]
+  );
+
+  const [paidRows] = await executor.execute(
+    `SELECT COALESCE(SUM(monto), 0) AS cobrado
+     FROM cuenta_corriente_movimientos
+     WHERE cliente_id = ?
+       AND tipo = 'pago'
+       AND periodo_desde IS NOT NULL
+       AND periodo_hasta IS NOT NULL
+       AND periodo_desde <= ?
+       AND periodo_hasta >= ?`,
+    [clienteId, fechaHasta, fechaDesde]
+  );
+
+  const [clientRows] = await executor.execute(
+    'SELECT saldo_cuenta_corriente FROM clientes WHERE id = ? LIMIT 1',
+    [clienteId]
+  );
+
+  const cargos = money(activity[0].cargos);
+  const cargosCantidad = Number(activity[0].cargos_cantidad);
+  const ajustesAumento = money(activity[0].ajustes_aumento);
+  const ajustesDisminucion = money(activity[0].ajustes_disminucion);
+  const anulaciones = money(voidRows[0].anulaciones);
+  const cobradoPeriodo = money(paidRows[0].cobrado);
+  const saldoTotal = clientRows.length ? money(clientRows[0].saldo_cuenta_corriente) : 0;
+  const netoPeriodo = money(cargos + ajustesAumento - anulaciones - ajustesDisminucion);
+  const saldoPeriodo = money(Math.max(0, netoPeriodo - cobradoPeriodo));
+  const aCobrar = money(Math.min(saldoPeriodo, Math.max(0, saldoTotal)));
+
+  return {
+    fecha_desde: fechaDesde,
+    fecha_hasta: fechaHasta,
+    periodo_label: formatPeriodLabel(fechaDesde, fechaHasta),
+    cargos,
+    cargos_cantidad: cargosCantidad,
+    anulaciones,
+    ajustes_aumento: ajustesAumento,
+    ajustes_disminucion: ajustesDisminucion,
+    neto_periodo: money(Math.max(0, netoPeriodo)),
+    cobrado_periodo: cobradoPeriodo,
+    saldo_periodo: saldoPeriodo,
+    saldo_total: saldoTotal,
+    a_cobrar: aCobrar,
+  };
+};
+
+export const getPeriodBalance = async (clienteId, { fecha_desde, fecha_hasta }) => {
+  const [clients] = await pool.execute('SELECT id FROM clientes WHERE id = ? LIMIT 1', [clienteId]);
+  if (!clients.length) throw new AppError('Cliente no encontrado', 404);
+  return computePeriodBalance(clienteId, fecha_desde, fecha_hasta);
 };
 
 /**
@@ -264,7 +385,10 @@ export const listMovements = async (clienteId, { page, limit }) => {
   const total = countRows[0].total;
 
   const [rows] = await pool.execute(
-    `SELECT m.*, u.nombre_usuario AS usuario_nombre, v.numero AS venta_numero,
+    `SELECT m.*,
+            DATE_FORMAT(m.periodo_desde, '%Y-%m-%d') AS periodo_desde,
+            DATE_FORMAT(m.periodo_hasta, '%Y-%m-%d') AS periodo_hasta,
+            u.nombre_usuario AS usuario_nombre, v.numero AS venta_numero,
             mp.nombre AS metodo_cobro_nombre
      FROM cuenta_corriente_movimientos m
      INNER JOIN usuarios u ON u.id = m.usuario_id
@@ -358,6 +482,29 @@ export const registerPayment = async (clienteId, data, usuarioId, ip = null) => 
       );
     }
 
+    const fechaDesde = data.fecha_desde || null;
+    const fechaHasta = data.fecha_hasta || null;
+    const hasPeriod = Boolean(fechaDesde && fechaHasta);
+    let period = null;
+
+    if (hasPeriod) {
+      period = await computePeriodBalance(clienteId, fechaDesde, fechaHasta, conn);
+      if (period.a_cobrar <= 0) {
+        throw new AppError(
+          period.neto_periodo <= 0
+            ? `No hay saldo para cobrar en el período ${period.periodo_label}`
+            : `El período ${period.periodo_label} ya está cobrado`,
+          400
+        );
+      }
+      if (amount > period.a_cobrar + 0.009) {
+        throw new AppError(
+          `El cobro del período ${period.periodo_label} no puede superar ${period.a_cobrar}`,
+          400
+        );
+      }
+    }
+
     const saldoPosterior = Math.round((saldoAnterior - amount) * 100) / 100;
 
     await conn.execute(
@@ -368,6 +515,7 @@ export const registerPayment = async (clienteId, data, usuarioId, ip = null) => 
     const refBase = `COBRO-${clienteId}-${Date.now()}`;
     const mediosLabel = resolvedMethods.map((m) => m.nombre).join(' + ');
     const userObs = data.observaciones?.trim() || '';
+    const periodNote = period ? `Período ${period.periodo_label}` : null;
     const createdIds = [];
     let runningAnterior = saldoAnterior;
 
@@ -377,6 +525,7 @@ export const registerPayment = async (clienteId, data, usuarioId, ip = null) => 
       const runningPosterior = Math.round((runningAnterior - line.monto) * 100) / 100;
       const referencia = lines.length > 1 ? `${refBase}-${i + 1}` : refBase;
       const obsParts = [
+        periodNote,
         userObs || null,
         lines.length > 1
           ? `Cobro mixto (${i + 1}/${lines.length}): ${method.nombre}`
@@ -391,9 +540,11 @@ export const registerPayment = async (clienteId, data, usuarioId, ip = null) => 
         saldoPosterior: runningPosterior,
         ventaId: null,
         referencia,
-        observaciones: obsParts.join(' — ') || 'Cobro registrado',
+        observaciones: (obsParts.join(' — ') || 'Cobro registrado').slice(0, 500),
         metodoCobro: line.metodo_cobro,
         cajaSesionId: openSession?.id ?? null,
+        periodoDesde: fechaDesde,
+        periodoHasta: fechaHasta,
         usuarioId,
       });
 
@@ -432,6 +583,8 @@ export const registerPayment = async (clienteId, data, usuarioId, ip = null) => 
         movimientos_ids: createdIds,
         caja_sesion_id: openSession?.id,
         saldo_posterior: saldoPosterior,
+        periodo_desde: fechaDesde,
+        periodo_hasta: fechaHasta,
       },
       ip,
     });

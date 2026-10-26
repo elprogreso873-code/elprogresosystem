@@ -21,6 +21,11 @@ export const movements = asyncHandler(async (req, res) => {
   res.json({ success: true, ...result });
 });
 
+export const periodBalance = asyncHandler(async (req, res) => {
+  const data = await cuentaCorrienteService.getPeriodBalance(req.params.clienteId, req.query);
+  res.json({ success: true, data });
+});
+
 export const pay = asyncHandler(async (req, res) => {
   const data = await cuentaCorrienteService.registerPayment(
     req.params.clienteId,

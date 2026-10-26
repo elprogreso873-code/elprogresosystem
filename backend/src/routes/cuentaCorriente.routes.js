@@ -4,6 +4,7 @@ import { validate } from '../middlewares/validate.js';
 import {
   listAccountsQuerySchema,
   listMovementsQuerySchema,
+  periodBalanceQuerySchema,
   registerPaymentSchema,
   registerAdjustmentSchema,
 } from '../validations/cuentaCorriente.validation.js';
@@ -50,6 +51,17 @@ router.get(
   ),
   validate(listMovementsQuerySchema, 'query'),
   cuentaCorrienteController.movements
+);
+
+router.get(
+  '/cliente/:clienteId/saldo-periodo',
+  authorizePermission(
+    PERMISSION_CODES.CUENTA_CORRIENTE_VER,
+    PERMISSION_CODES.CLIENTES_VER,
+    PERMISSION_CODES.CUENTA_CORRIENTE_COBRAR
+  ),
+  validate(periodBalanceQuerySchema, 'query'),
+  cuentaCorrienteController.periodBalance
 );
 
 router.post(

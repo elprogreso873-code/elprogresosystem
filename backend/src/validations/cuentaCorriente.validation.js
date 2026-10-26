@@ -1,4 +1,9 @@
 import { z } from 'zod';
+import { optionalDateFilter } from './common.validation.js';
+
+const dateOnly = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, 'Formato de fecha inválido (YYYY-MM-DD)');
 
 const optionalSaldo = z.preprocess(
   (v) => (v === '' || v === null || v === undefined ? undefined : v),
@@ -35,14 +40,41 @@ const cobroLineSchema = z.object({
   monto: z.coerce.number().positive('Cada monto debe ser mayor a 0'),
 });
 
+export const periodBalanceQuerySchema = z
+  .object({
+    fecha_desde: dateOnly,
+    fecha_hasta: dateOnly,
+  })
+  .refine((data) => data.fecha_desde <= data.fecha_hasta, {
+    message: 'fecha_desde no puede ser posterior a fecha_hasta',
+    path: ['fecha_hasta'],
+  });
+
 export const registerPaymentSchema = z
   .object({
     monto: z.coerce.number().positive('El monto debe ser mayor a 0').optional(),
     observaciones: z.string().max(500).optional().nullable(),
     metodo_cobro: z.string().min(1).max(50).trim().optional(),
     pagos: z.array(cobroLineSchema).min(1).max(2).optional(),
+    fecha_desde: optionalDateFilter,
+    fecha_hasta: optionalDateFilter,
   })
   .superRefine((data, ctx) => {
+    if (Boolean(data.fecha_desde) !== Boolean(data.fecha_hasta)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Indique ambas fechas del período o deje las dos vacías',
+        path: [data.fecha_desde ? 'fecha_hasta' : 'fecha_desde'],
+      });
+    }
+    if (data.fecha_desde && data.fecha_hasta && data.fecha_desde > data.fecha_hasta) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'fecha_desde no puede ser posterior a fecha_hasta',
+        path: ['fecha_hasta'],
+      });
+    }
+
     if (data.pagos?.length) {
       const sum = data.pagos.reduce((acc, p) => acc + Number(p.monto), 0);
       if (sum <= 0) {

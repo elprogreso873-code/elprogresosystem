@@ -253,6 +253,7 @@ export const applySchemaPatches = async (connection) => {
   log('✓ presupuestos — estado convertido');
 
   await applyPurchasesModulePatches(connection);
+  await applyCuentaCorrientePeriodPatches(connection);
 };
 
 async function constraintExists(connection, name) {
@@ -435,7 +436,36 @@ async function applyPurchasesModulePatches(connection) {
     ON DUPLICATE KEY UPDATE descripcion = VALUES(descripcion);
   `);
   log('✓ permisos — módulo compras y proveedores');
-};
+}
+
+async function applyCuentaCorrientePeriodPatches(connection) {
+  if (!(await columnExists(connection, 'cuenta_corriente_movimientos', 'periodo_desde'))) {
+    await connection.query(
+      `ALTER TABLE cuenta_corriente_movimientos
+         ADD COLUMN periodo_desde DATE DEFAULT NULL AFTER caja_sesion_id`
+    );
+  }
+  if (!(await columnExists(connection, 'cuenta_corriente_movimientos', 'periodo_hasta'))) {
+    await connection.query(
+      `ALTER TABLE cuenta_corriente_movimientos
+         ADD COLUMN periodo_hasta DATE DEFAULT NULL AFTER periodo_desde`
+    );
+  }
+  const [periodIndex] = await connection.query(
+    `SELECT 1 FROM information_schema.STATISTICS
+     WHERE TABLE_SCHEMA = DATABASE()
+       AND TABLE_NAME = 'cuenta_corriente_movimientos'
+       AND INDEX_NAME = 'idx_cc_mov_periodo'
+     LIMIT 1`
+  );
+  if (!periodIndex.length) {
+    await connection.query(
+      `ALTER TABLE cuenta_corriente_movimientos
+         ADD KEY idx_cc_mov_periodo (periodo_desde, periodo_hasta)`
+    );
+  }
+  log('✓ cuenta_corriente — período de cobro mensual');
+}
 
 const seedAdmin = async (connection) => {
   const username = process.env.ADMIN_USERNAME || 'admin';
