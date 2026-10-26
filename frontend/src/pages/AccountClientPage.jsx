@@ -26,7 +26,7 @@ import { EmptyState } from '../components/common/EmptyState';
 import { AccountPaymentForm } from '../components/forms/AccountPaymentForm';
 import { AccountAdjustmentForm } from '../components/forms/AccountAdjustmentForm';
 import { formatCurrency } from '../utils/formatCurrency';
-import { formatDate } from '../utils/formatDate';
+import { formatDate, formatDateOnly } from '../utils/formatDate';
 import { getErrorMessage } from '../utils/getErrorMessage';
 
 const tipoMovLabel = {
@@ -64,7 +64,11 @@ const MovementCard = ({ movement: m }) => (
         Saldo {formatCurrency(m.saldo_posterior)}
       </span>
     </div>
-    {(m.metodo_cobro_nombre || m.metodo_cobro || m.venta_numero || m.observaciones) && (
+    {(m.metodo_cobro_nombre ||
+      m.metodo_cobro ||
+      m.venta_numero ||
+      m.observaciones ||
+      (m.periodo_desde && m.periodo_hasta)) && (
       <div className="text-xs text-slate-600 pt-1 border-t border-slate-100">
         {(m.metodo_cobro_nombre || m.metodo_cobro) && m.tipo === 'pago' && (
           <p className="font-medium text-slate-700">
@@ -75,6 +79,11 @@ const MovementCard = ({ movement: m }) => (
           <Link to={`/ventas/${m.venta_id}`} className="text-brand-700 font-medium hover:underline">
             {m.venta_numero}
           </Link>
+        )}
+        {m.periodo_desde && m.periodo_hasta && (
+          <p className="mt-0.5 font-medium text-slate-700">
+            Período {formatDateOnly(m.periodo_desde)} — {formatDateOnly(m.periodo_hasta)}
+          </p>
         )}
         {m.observaciones && <p className="mt-0.5">{m.observaciones}</p>}
         <p className="text-slate-400 mt-1">{m.usuario_nombre}</p>
@@ -134,8 +143,19 @@ export const AccountClientPage = () => {
   });
 
   useEffect(() => {
-    loadClient();
-  }, [loadClient]);
+    let cancelled = false;
+    cuentaCorrienteService
+      .getClient(clienteId)
+      .then((c) => {
+        if (!cancelled) setClient(c);
+      })
+      .catch((err) => {
+        if (!cancelled) setError(getErrorMessage(err));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [clienteId]);
 
   useEffect(() => {
     if (!success) return;
@@ -356,6 +376,12 @@ export const AccountClientPage = () => {
                               {m.venta_numero}
                             </Link>
                           )}
+                          {m.periodo_desde && m.periodo_hasta && (
+                            <span className="block font-medium text-slate-700 mt-0.5">
+                              Período {formatDateOnly(m.periodo_desde)} —{' '}
+                              {formatDateOnly(m.periodo_hasta)}
+                            </span>
+                          )}
                           {m.observaciones && (
                             <span className={m.venta_numero ? ' block mt-0.5' : ''}>
                               {m.observaciones}
@@ -400,9 +426,15 @@ export const AccountClientPage = () => {
           </>
         }
       >
+        {error && payModal && (
+          <div className="mb-3">
+            <Alert>{error}</Alert>
+          </div>
+        )}
         <AccountPaymentForm
           key={payFormKey}
           formId="account-payment-form"
+          clienteId={clienteId}
           saldoPendiente={saldo}
           paymentMethods={cobroMetodos}
           defaultMetodo={defaultCobroMetodo?.codigo || 'efectivo'}

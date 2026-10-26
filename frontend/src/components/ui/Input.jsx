@@ -96,6 +96,11 @@ export const Input = ({
           id={id}
           type={type}
           ref={ref}
+          value={value}
+          defaultValue={value === undefined ? defaultValue : undefined}
+          min={min}
+          max={max}
+          step={step}
           onWheel={handleWheel}
           onChange={onChange}
           onBlur={onBlur}
