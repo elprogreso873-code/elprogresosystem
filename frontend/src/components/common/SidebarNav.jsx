@@ -13,7 +13,9 @@ import {
   Warehouse,
   AlertTriangle,
   ShoppingCart,
+  ShoppingBag,
   ClipboardList,
+  Truck,
   Wallet,
   BarChart3,
   ScrollText,
@@ -29,6 +31,8 @@ import {
   CONFIG_ACCESS_PERMISSIONS,
   CATALOGO_ACCESS_PERMISSIONS,
   CLIENTES_ACCESS_PERMISSIONS,
+  COMPRAS_ACCESS_PERMISSIONS,
+  PROVEEDORES_ACCESS_PERMISSIONS,
   FINANZAS_ACCESS_PERMISSIONS,
 } from '../../constants/permissions';
 
@@ -106,6 +110,8 @@ export const SidebarNav = ({ onNavigate }) => {
     PERMISSIONS.INVENTARIO_VER,
     PERMISSIONS.INVENTARIO_MOVIMIENTO
   );
+  const showPurchases = hasPermission(...COMPRAS_ACCESS_PERMISSIONS);
+  const showSuppliers = hasPermission(...PROVEEDORES_ACCESS_PERMISSIONS);
   const showSales = hasPermission(
     PERMISSIONS.VENTAS_VER,
     PERMISSIONS.VENTAS_CREAR,
@@ -155,6 +161,20 @@ export const SidebarNav = ({ onNavigate }) => {
         <NavLink to="/presupuestos" className={linkClass} onClick={handleClick}>
           <ClipboardList className="w-5 h-5 shrink-0" />
           Presupuestos
+        </NavLink>
+      )}
+
+      {showPurchases && (
+        <NavLink to="/compras" className={linkClass} onClick={handleClick}>
+          <ShoppingBag className="w-5 h-5 shrink-0" />
+          Compras
+        </NavLink>
+      )}
+
+      {showSuppliers && (
+        <NavLink to="/proveedores" className={linkClass} onClick={handleClick}>
+          <Truck className="w-5 h-5 shrink-0" />
+          Proveedores
         </NavLink>
       )}
 

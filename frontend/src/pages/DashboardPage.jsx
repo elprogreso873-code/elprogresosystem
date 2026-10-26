@@ -3,6 +3,8 @@ import {
   Package,
   Tags,
   ShoppingCart,
+  ShoppingBag,
+  Truck,
   UserCircle,
   Warehouse,
   Shield,
@@ -28,6 +30,18 @@ export const DashboardPage = () => {
       icon: ShoppingCart,
       to: '/ventas',
       color: 'bg-emerald-100 text-emerald-800',
+    },
+    hasPermission(PERMISSIONS.COMPRAS_VER, PERMISSIONS.COMPRAS_CREAR) && {
+      title: 'Compras',
+      icon: ShoppingBag,
+      to: '/compras',
+      color: 'bg-teal-100 text-teal-800',
+    },
+    hasPermission(PERMISSIONS.PROVEEDORES_VER, PERMISSIONS.PROVEEDORES_CREAR) && {
+      title: 'Proveedores',
+      icon: Truck,
+      to: '/proveedores',
+      color: 'bg-orange-100 text-orange-800',
     },
     hasPermission(PERMISSIONS.CAJA_VER, PERMISSIONS.CAJA_ABRIR) && {
       title: 'Caja',

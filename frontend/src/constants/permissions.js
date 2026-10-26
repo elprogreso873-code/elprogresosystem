@@ -39,6 +39,14 @@ export const PERMISSIONS = {
   AUDITORIA_VER: 'auditoria.ver',
   METODOS_PAGO_VER: 'metodos_pago.ver',
   METODOS_PAGO_GESTIONAR: 'metodos_pago.gestionar',
+  COMPRAS_VER: 'compras.ver',
+  COMPRAS_CREAR: 'compras.crear',
+  COMPRAS_ANULAR: 'compras.anular',
+  PROVEEDORES_VER: 'proveedores.ver',
+  PROVEEDORES_CREAR: 'proveedores.crear',
+  PROVEEDORES_EDITAR: 'proveedores.editar',
+  PROVEEDORES_DESACTIVAR: 'proveedores.desactivar',
+  PROVEEDORES_PAGAR: 'proveedores.pagar',
 };
 
 export const ROLES = { ADMIN: 'admin', EMPLEADO: 'empleado' };
@@ -84,6 +92,20 @@ export const CAJA_ACCESS_PERMISSIONS = [
   PERMISSIONS.CAJA_ABRIR,
   PERMISSIONS.CAJA_CERRAR,
   PERMISSIONS.CAJA_MOVIMIENTO,
+];
+
+export const COMPRAS_ACCESS_PERMISSIONS = [
+  PERMISSIONS.COMPRAS_VER,
+  PERMISSIONS.COMPRAS_CREAR,
+  PERMISSIONS.COMPRAS_ANULAR,
+];
+
+export const PROVEEDORES_ACCESS_PERMISSIONS = [
+  PERMISSIONS.PROVEEDORES_VER,
+  PERMISSIONS.PROVEEDORES_CREAR,
+  PERMISSIONS.PROVEEDORES_EDITAR,
+  PERMISSIONS.PROVEEDORES_DESACTIVAR,
+  PERMISSIONS.PROVEEDORES_PAGAR,
 ];
 
 export const CLIENTES_ACCESS_PERMISSIONS = [
@@ -188,6 +210,14 @@ export const PERMISSION_LABELS = {
   [PERMISSIONS.AUDITORIA_VER]: 'Ver auditoría',
   [PERMISSIONS.METODOS_PAGO_VER]: 'Ver métodos de pago',
   [PERMISSIONS.METODOS_PAGO_GESTIONAR]: 'Configurar métodos de pago',
+  [PERMISSIONS.COMPRAS_VER]: 'Ver compras',
+  [PERMISSIONS.COMPRAS_CREAR]: 'Registrar compras',
+  [PERMISSIONS.COMPRAS_ANULAR]: 'Anular compras',
+  [PERMISSIONS.PROVEEDORES_VER]: 'Ver proveedores',
+  [PERMISSIONS.PROVEEDORES_CREAR]: 'Crear proveedores',
+  [PERMISSIONS.PROVEEDORES_EDITAR]: 'Editar proveedores',
+  [PERMISSIONS.PROVEEDORES_DESACTIVAR]: 'Desactivar proveedores',
+  [PERMISSIONS.PROVEEDORES_PAGAR]: 'Pagar a proveedores',
 };
 
 export const PERMISSION_GROUPS = [
@@ -269,6 +299,22 @@ export const PERMISSION_GROUPS = [
       PERMISSIONS.PRESUPUESTOS_CREAR,
       PERMISSIONS.PRESUPUESTOS_ANULAR,
       PERMISSIONS.PRESUPUESTOS_CONVERTIR,
+    ],
+  },
+  {
+    modulo: 'compras',
+    titulo: 'Compras',
+    permisos: [PERMISSIONS.COMPRAS_VER, PERMISSIONS.COMPRAS_CREAR, PERMISSIONS.COMPRAS_ANULAR],
+  },
+  {
+    modulo: 'proveedores',
+    titulo: 'Proveedores',
+    permisos: [
+      PERMISSIONS.PROVEEDORES_VER,
+      PERMISSIONS.PROVEEDORES_CREAR,
+      PERMISSIONS.PROVEEDORES_EDITAR,
+      PERMISSIONS.PROVEEDORES_DESACTIVAR,
+      PERMISSIONS.PROVEEDORES_PAGAR,
     ],
   },
   {

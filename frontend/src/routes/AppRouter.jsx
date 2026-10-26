@@ -24,6 +24,11 @@ import { ReportsPage } from '../pages/ReportsPage';
 import { AuditPage } from '../pages/AuditPage';
 import { NotFoundPage } from '../pages/NotFoundPage';
 import { RouterErrorPage } from '../pages/RouterErrorPage';
+import { PurchasesPage } from '../pages/PurchasesPage';
+import { PurchaseCreatePage } from '../pages/PurchaseCreatePage';
+import { PurchaseDetailPage } from '../pages/PurchaseDetailPage';
+import { SuppliersPage } from '../pages/SuppliersPage';
+import { SupplierDetailPage } from '../pages/SupplierDetailPage';
 import { ClientesRoutes } from './ClientesRoutes';
 import {
   ProtectedRoute,
@@ -32,7 +37,12 @@ import {
   DashboardRoute,
   RequirePermission,
 } from './ProtectedRoute';
-import { PERMISSIONS, CLIENTES_ACCESS_PERMISSIONS } from '../constants/permissions';
+import {
+  PERMISSIONS,
+  CLIENTES_ACCESS_PERMISSIONS,
+  COMPRAS_ACCESS_PERMISSIONS,
+  PROVEEDORES_ACCESS_PERMISSIONS,
+} from '../constants/permissions';
 
 const LegacyVentaDetailRedirect = () => {
   const { id } = useParams();
@@ -109,6 +119,17 @@ export const AppRouter = () => (
             <Route path="/presupuestos" element={<QuotesPage />} />
             <Route path="/presupuestos/nuevo" element={<QuoteCreatePage />} />
             <Route path="/presupuestos/:id" element={<QuoteDetailPage />} />
+          </Route>
+
+          <Route element={<PermissionRoute permissions={COMPRAS_ACCESS_PERMISSIONS} />}>
+            <Route path="/compras" element={<PurchasesPage />} />
+            <Route path="/compras/nueva" element={<PurchaseCreatePage />} />
+            <Route path="/compras/:id" element={<PurchaseDetailPage />} />
+          </Route>
+
+          <Route element={<PermissionRoute permissions={PROVEEDORES_ACCESS_PERMISSIONS} />}>
+            <Route path="/proveedores" element={<SuppliersPage />} />
+            <Route path="/proveedores/:id" element={<SupplierDetailPage />} />
           </Route>
 
           <Route element={<PermissionRoute permissions={cashPerms} />}>
