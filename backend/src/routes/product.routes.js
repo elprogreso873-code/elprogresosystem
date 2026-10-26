@@ -13,6 +13,8 @@ const QUICK_SEARCH_PERMISSIONS = [
   PERMISSION_CODES.INVENTARIO_VER,
   PERMISSION_CODES.VENTAS_VER,
   PERMISSION_CODES.VENTAS_CREAR,
+  PERMISSION_CODES.COMPRAS_VER,
+  PERMISSION_CODES.COMPRAS_CREAR,
 ];
 import { authenticate, authorizePermission } from '../middlewares/auth.js';
 import { PERMISSION_CODES } from '../constants/permissions.js';

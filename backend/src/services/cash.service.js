@@ -583,6 +583,112 @@ export const closeSession = async (sesionId, data, usuarioId, ip = null) => {
   });
 };
 
+export const registerPurchasePaymentInCash = async (
+  {
+    sesionId,
+    compraId,
+    numero,
+    monto,
+    metodoPago,
+    proveedorNombre,
+    proveedorMovimientoId,
+    descripcion,
+  },
+  usuarioId,
+  conn
+) => {
+  if (!sesionId) return;
+
+  const amount = Number(monto);
+  if (amount <= 0) return;
+
+  const codigo = metodoPago || 'efectivo';
+  const sesion = await getSessionById(sesionId, conn);
+  if (sesion.estado !== 'abierta') {
+    throw new AppError('La sesión de caja está cerrada', 400);
+  }
+
+  if (await affectsPhysicalCash(codigo, conn)) {
+    const disponible = computeEfectivoFisico(sesion);
+    if (amount > disponible + 0.009) {
+      throw new AppError(
+        `No hay suficiente efectivo en caja (disponible ${disponible.toFixed(2)})`,
+        400
+      );
+    }
+  }
+
+  await conn.execute(
+    `INSERT INTO caja_movimientos (
+      sesion_id, tipo, monto, metodo_pago, descripcion, referencia,
+      compra_id, proveedor_movimiento_id, usuario_id
+    ) VALUES (?, 'egreso', ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      sesionId,
+      amount,
+      codigo,
+      descripcion || `Compra ${numero} — ${proveedorNombre || ''}`.trim(),
+      numero ?? null,
+      compraId ?? null,
+      proveedorMovimientoId ?? null,
+      usuarioId,
+    ]
+  );
+
+  await conn.execute(
+    'UPDATE caja_sesiones SET total_egresos = total_egresos + ? WHERE id = ?',
+    [amount, sesionId]
+  );
+
+  if (await affectsPhysicalCash(codigo, conn)) {
+    await conn.execute(
+      'UPDATE caja_sesiones SET total_ventas_efectivo = total_ventas_efectivo - ? WHERE id = ?',
+      [amount, sesionId]
+    );
+  }
+};
+
+export const reversePurchasePaymentInCash = async (
+  { sesionId, compraId, numero, monto, metodoPago, proveedorNombre },
+  usuarioId,
+  conn
+) => {
+  if (!sesionId) return;
+
+  const amount = Number(monto);
+  if (amount <= 0) return;
+
+  const codigo = metodoPago || 'efectivo';
+
+  await conn.execute(
+    `INSERT INTO caja_movimientos (
+      sesion_id, tipo, monto, metodo_pago, descripcion, referencia,
+      compra_id, usuario_id
+    ) VALUES (?, 'ingreso', ?, ?, ?, ?, ?, ?)`,
+    [
+      sesionId,
+      amount,
+      codigo,
+      `Anulación compra ${numero}${proveedorNombre ? ` — ${proveedorNombre}` : ''}`,
+      numero ?? null,
+      compraId ?? null,
+      usuarioId,
+    ]
+  );
+
+  await conn.execute(
+    'UPDATE caja_sesiones SET total_ingresos = total_ingresos + ? WHERE id = ?',
+    [amount, sesionId]
+  );
+
+  if (await affectsPhysicalCash(codigo, conn)) {
+    await conn.execute(
+      'UPDATE caja_sesiones SET total_ventas_efectivo = total_ventas_efectivo + ? WHERE id = ?',
+      [amount, sesionId]
+    );
+  }
+};
+
 export const getCashSummary = async () => {
   const [abiertas] = await pool.execute(
     "SELECT COUNT(*) AS total FROM caja_sesiones WHERE estado = 'abierta'"

@@ -251,6 +251,190 @@ export const applySchemaPatches = async (connection) => {
     );
   }
   log('✓ presupuestos — estado convertido');
+
+  await applyPurchasesModulePatches(connection);
+};
+
+async function constraintExists(connection, name) {
+  const [rows] = await connection.query(
+    `SELECT 1 FROM information_schema.TABLE_CONSTRAINTS
+     WHERE TABLE_SCHEMA = DATABASE() AND CONSTRAINT_NAME = ?
+     LIMIT 1`,
+    [name]
+  );
+  return rows.length > 0;
+}
+
+async function applyPurchasesModulePatches(connection) {
+  await connection.query(`
+    CREATE TABLE IF NOT EXISTS proveedores (
+      id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+      nombre VARCHAR(150) NOT NULL,
+      cuit VARCHAR(20) DEFAULT NULL,
+      email VARCHAR(120) DEFAULT NULL,
+      telefono VARCHAR(30) DEFAULT NULL,
+      direccion VARCHAR(255) DEFAULT NULL,
+      observaciones VARCHAR(500) DEFAULT NULL,
+      estado ENUM('activo', 'inactivo') NOT NULL DEFAULT 'activo',
+      saldo DECIMAL(12, 2) NOT NULL DEFAULT 0.00,
+      fecha_creacion TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      fecha_actualizacion TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      KEY idx_proveedores_nombre (nombre),
+      KEY idx_proveedores_estado (estado),
+      KEY idx_proveedores_saldo (saldo),
+      KEY idx_proveedores_cuit (cuit)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+  `);
+
+  await connection.query(`
+    CREATE TABLE IF NOT EXISTS compras (
+      id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+      numero VARCHAR(30) NOT NULL,
+      proveedor_id INT UNSIGNED NOT NULL,
+      usuario_id INT UNSIGNED NOT NULL,
+      subtotal DECIMAL(12, 2) NOT NULL DEFAULT 0.00,
+      total DECIMAL(12, 2) NOT NULL DEFAULT 0.00,
+      total_manual TINYINT(1) NOT NULL DEFAULT 0,
+      monto_pagado DECIMAL(12, 2) NOT NULL DEFAULT 0.00,
+      saldo DECIMAL(12, 2) NOT NULL DEFAULT 0.00,
+      estado ENUM('completada', 'anulada') NOT NULL DEFAULT 'completada',
+      estado_pago ENUM('pagada', 'parcial', 'pendiente') NOT NULL DEFAULT 'pendiente',
+      paga_con_caja TINYINT(1) NOT NULL DEFAULT 0,
+      caja_sesion_id INT UNSIGNED DEFAULT NULL,
+      metodo_pago VARCHAR(50) DEFAULT NULL,
+      observaciones TEXT DEFAULT NULL,
+      fecha_compra TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      fecha_creacion TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      fecha_actualizacion TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      UNIQUE KEY uk_compras_numero (numero),
+      KEY idx_compras_proveedor (proveedor_id),
+      KEY idx_compras_usuario (usuario_id),
+      KEY idx_compras_estado (estado),
+      KEY idx_compras_estado_pago (estado_pago),
+      KEY idx_compras_fecha (fecha_compra),
+      KEY idx_compras_caja (caja_sesion_id),
+      CONSTRAINT fk_compras_proveedor FOREIGN KEY (proveedor_id) REFERENCES proveedores (id),
+      CONSTRAINT fk_compras_usuario FOREIGN KEY (usuario_id) REFERENCES usuarios (id),
+      CONSTRAINT fk_compras_caja FOREIGN KEY (caja_sesion_id) REFERENCES caja_sesiones (id) ON DELETE SET NULL
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+  `);
+
+  await connection.query(`
+    CREATE TABLE IF NOT EXISTS compra_detalle (
+      id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+      compra_id INT UNSIGNED NOT NULL,
+      producto_id INT UNSIGNED NOT NULL,
+      producto_nombre VARCHAR(150) NOT NULL,
+      producto_codigo VARCHAR(50) NOT NULL DEFAULT '',
+      cantidad DECIMAL(12, 3) NOT NULL,
+      precio_costo DECIMAL(12, 2) NOT NULL DEFAULT 0.00,
+      precio_venta DECIMAL(12, 2) DEFAULT NULL,
+      actualizar_precios TINYINT(1) NOT NULL DEFAULT 0,
+      subtotal DECIMAL(12, 2) NOT NULL,
+      PRIMARY KEY (id),
+      KEY idx_compra_detalle_compra (compra_id),
+      KEY idx_compra_detalle_producto (producto_id),
+      CONSTRAINT fk_compra_detalle_compra FOREIGN KEY (compra_id) REFERENCES compras (id) ON DELETE CASCADE,
+      CONSTRAINT fk_compra_detalle_producto FOREIGN KEY (producto_id) REFERENCES productos (id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+  `);
+
+  await connection.query(`
+    CREATE TABLE IF NOT EXISTS proveedor_movimientos (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      proveedor_id INT UNSIGNED NOT NULL,
+      tipo ENUM('cargo', 'pago', 'anulacion') NOT NULL,
+      monto DECIMAL(12, 2) NOT NULL,
+      saldo_anterior DECIMAL(12, 2) NOT NULL,
+      saldo_posterior DECIMAL(12, 2) NOT NULL,
+      compra_id INT UNSIGNED DEFAULT NULL,
+      referencia VARCHAR(80) DEFAULT NULL,
+      observaciones VARCHAR(500) DEFAULT NULL,
+      metodo_pago VARCHAR(50) DEFAULT NULL,
+      paga_con_caja TINYINT(1) NOT NULL DEFAULT 0,
+      caja_sesion_id INT UNSIGNED DEFAULT NULL,
+      usuario_id INT UNSIGNED NOT NULL,
+      fecha TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      KEY idx_prov_mov_proveedor (proveedor_id),
+      KEY idx_prov_mov_fecha (fecha),
+      KEY idx_prov_mov_tipo (tipo),
+      KEY idx_prov_mov_compra (compra_id),
+      KEY idx_prov_mov_caja (caja_sesion_id),
+      CONSTRAINT fk_prov_mov_proveedor FOREIGN KEY (proveedor_id) REFERENCES proveedores (id),
+      CONSTRAINT fk_prov_mov_compra FOREIGN KEY (compra_id) REFERENCES compras (id) ON DELETE SET NULL,
+      CONSTRAINT fk_prov_mov_usuario FOREIGN KEY (usuario_id) REFERENCES usuarios (id),
+      CONSTRAINT fk_prov_mov_caja FOREIGN KEY (caja_sesion_id) REFERENCES caja_sesiones (id) ON DELETE SET NULL
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+  `);
+
+  await connection.query(`
+    CREATE TABLE IF NOT EXISTS compra_pagos (
+      id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+      compra_id INT UNSIGNED NOT NULL,
+      proveedor_movimiento_id BIGINT UNSIGNED DEFAULT NULL,
+      monto DECIMAL(12, 2) NOT NULL,
+      metodo_pago VARCHAR(50) DEFAULT NULL,
+      paga_con_caja TINYINT(1) NOT NULL DEFAULT 0,
+      caja_sesion_id INT UNSIGNED DEFAULT NULL,
+      es_inicial TINYINT(1) NOT NULL DEFAULT 0,
+      usuario_id INT UNSIGNED NOT NULL,
+      observaciones VARCHAR(500) DEFAULT NULL,
+      fecha TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      KEY idx_compra_pagos_compra (compra_id),
+      KEY idx_compra_pagos_mov (proveedor_movimiento_id),
+      CONSTRAINT fk_compra_pagos_compra FOREIGN KEY (compra_id) REFERENCES compras (id) ON DELETE CASCADE,
+      CONSTRAINT fk_compra_pagos_mov FOREIGN KEY (proveedor_movimiento_id) REFERENCES proveedor_movimientos (id) ON DELETE SET NULL,
+      CONSTRAINT fk_compra_pagos_usuario FOREIGN KEY (usuario_id) REFERENCES usuarios (id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+  `);
+  log('✓ proveedores/compras — tablas');
+
+  if (!(await columnExists(connection, 'caja_movimientos', 'compra_id'))) {
+    await connection.query(
+      `ALTER TABLE caja_movimientos
+         ADD COLUMN compra_id INT UNSIGNED DEFAULT NULL AFTER cuenta_corriente_movimiento_id`
+    );
+  }
+  if (!(await columnExists(connection, 'caja_movimientos', 'proveedor_movimiento_id'))) {
+    await connection.query(
+      `ALTER TABLE caja_movimientos
+         ADD COLUMN proveedor_movimiento_id BIGINT UNSIGNED DEFAULT NULL AFTER compra_id`
+    );
+  }
+
+  if (!(await constraintExists(connection, 'fk_caja_mov_compra'))) {
+    await connection.query(
+      `ALTER TABLE caja_movimientos
+         ADD CONSTRAINT fk_caja_mov_compra
+         FOREIGN KEY (compra_id) REFERENCES compras (id) ON DELETE SET NULL`
+    );
+  }
+  if (!(await constraintExists(connection, 'fk_caja_mov_prov_mov'))) {
+    await connection.query(
+      `ALTER TABLE caja_movimientos
+         ADD CONSTRAINT fk_caja_mov_prov_mov
+         FOREIGN KEY (proveedor_movimiento_id) REFERENCES proveedor_movimientos (id) ON DELETE SET NULL`
+    );
+  }
+  log('✓ caja_movimientos — vínculo con compras');
+
+  await connection.query(`
+    INSERT INTO permisos (codigo, modulo, descripcion) VALUES
+      ('compras.ver', 'compras', 'Ver compras a proveedores'),
+      ('compras.crear', 'compras', 'Registrar compras a proveedores'),
+      ('compras.anular', 'compras', 'Anular compras'),
+      ('proveedores.ver', 'proveedores', 'Ver proveedores y saldos'),
+      ('proveedores.crear', 'proveedores', 'Crear proveedores'),
+      ('proveedores.editar', 'proveedores', 'Editar proveedores'),
+      ('proveedores.desactivar', 'proveedores', 'Desactivar proveedores'),
+      ('proveedores.pagar', 'proveedores', 'Registrar pagos a proveedores')
+    ON DUPLICATE KEY UPDATE descripcion = VALUES(descripcion);
+  `);
+  log('✓ permisos — módulo compras y proveedores');
 };
 
 const seedAdmin = async (connection) => {
